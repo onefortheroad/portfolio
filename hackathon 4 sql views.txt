@@ -1,0 +1,70 @@
+CREATE OR REPLACE VIEW public.loandefaultratesbydemographics
+ AS
+ SELECT c.gender,
+    floor(date_part('year'::text, c.birth_date) / 10::double precision) * 10::double precision AS birthdecade,
+    count(c.client_id) AS clientcount,
+    sum(l.amount) AS loanamount,
+    count(l.loan_id) AS loancount,
+    count(
+        CASE
+            WHEN l.status::text = 'B'::text THEN l.loan_id
+            ELSE NULL::bigint
+        END) AS loandefaultcount,
+        CASE
+            WHEN count(l.loan_id) > 0 THEN count(
+            CASE
+                WHEN l.status::text = 'B'::text THEN l.loan_id
+                ELSE NULL::bigint
+            END)::double precision / count(l.loan_id)::double precision
+            ELSE NULL::double precision
+        END AS loandefaultrate
+   FROM clients c
+     LEFT JOIN dispositions d ON c.client_id = d.client_id
+     LEFT JOIN accounts a ON d.account_id = a.account_id
+     LEFT JOIN loans l ON l.account_id = a.account_id
+  GROUP BY c.gender, (floor(date_part('year'::text, c.birth_date) / 10::double precision) * 10::double precision)
+  ORDER BY (
+        CASE
+            WHEN count(l.loan_id) > 0 THEN count(
+            CASE
+                WHEN l.status::text = 'B'::text THEN l.loan_id
+                ELSE NULL::bigint
+            END)::double precision / count(l.loan_id)::double precision
+            ELSE NULL::double precision
+        END) DESC;
+
+
+
+
+CREATE OR REPLACE VIEW public.loanperformanceperdistrict2
+ AS
+ SELECT d.district_name,
+    count(l.loan_id) AS loancount,
+    count(
+        CASE
+            WHEN l.status::text = 'B'::text THEN l.loan_id
+            ELSE NULL::bigint
+        END) AS loandefaultcount,
+    sum(l.amount) AS loanamount,
+    count(
+        CASE
+            WHEN l.status::text = 'B'::text THEN l.loan_id
+            ELSE NULL::bigint
+        END)::numeric / sum(count(l.loan_id)) OVER (PARTITION BY d.district_name) AS loandefaultperdistrict,
+    count(
+        CASE
+            WHEN l.status::text = 'D'::text THEN l.loan_id
+            ELSE NULL::bigint
+        END)::numeric / sum(count(l.loan_id)) OVER (PARTITION BY d.district_name) AS loanarrearsperdistrict
+   FROM loans l
+     LEFT JOIN accounts a ON l.account_id = a.account_id
+     LEFT JOIN ( SELECT DISTINCT demographics.district_id,
+            demographics.a2 AS district_name
+           FROM demographics) d ON a.district_id = d.district_id
+  GROUP BY d.district_name
+  ORDER BY (count(
+        CASE
+            WHEN l.status::text = 'B'::text THEN l.loan_id
+            ELSE NULL::bigint
+        END)::numeric / sum(count(l.loan_id)) OVER (PARTITION BY d.district_name)) DESC;
+
